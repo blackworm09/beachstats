@@ -37,6 +37,7 @@ export function calculateStats(rallies: Rally[], players: Player[]) {
       perfectPasses: 0,
       goodPasses: 0,
       badPasses: 0,
+      acePasses: 0,
       sideoutAttempts: 0,
       sideoutPoints: 0,
       sideoutErrors: 0,
@@ -75,6 +76,7 @@ export function calculateStats(rallies: Rally[], players: Player[]) {
         if (action.result === 'perfect') ps.perfectPasses++;
         else if (action.result === 'good') ps.goodPasses++;
         else if (action.result === 'bad') ps.badPasses++;
+        else if (action.result === 'ace') ps.acePasses++;
       }
 
       if (action.type === 'attack') {
@@ -116,6 +118,7 @@ export function calculateStats(rallies: Rally[], players: Player[]) {
       efficiency: calcEff(ps.points, ps.errors, ps.attacks + ps.serves),
       sideoutEfficiency: calcEff(ps.sideoutPoints, ps.sideoutErrors, ps.sideoutAttempts),
       passPercentage: ps.passes > 0 ? ((ps.perfectPasses + ps.goodPasses) / ps.passes) * 100 : 0,
+      passScore: ps.passes > 0 ? (ps.perfectPasses * 3 + ps.goodPasses * 2 + ps.badPasses * 1) / ps.passes : 0,
     })),
     teamTotals: {
       own: {

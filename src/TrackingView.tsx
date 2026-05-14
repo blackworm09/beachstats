@@ -7,7 +7,7 @@ import {
 } from './types';
 import { PlayerSelectButton, OutcomeButton, ActionButton, getSelectedPlayerId } from './components';
 
-type RallyStep = 'choose_server' | 'serve' | 'ace_passer' | 'pass' | 'setup' | 'attack' | 'defense_result' | 'rally_continued_scoring';
+type RallyStep = 'choose_server' | 'serve' | 'ace_passer' | 'pass' | 'attack' | 'defense_result';
 
 interface TrackingViewProps {
   gameState: GameState;
@@ -24,21 +24,24 @@ export default function TrackingView({ gameState, onEndRally }: TrackingViewProp
 
   const [selectedAttackType, setSelectedAttackType] = useState<AttackType>('hit line');
   const [selectedServeType, setSelectedServeType] = useState<ServeType>('topspin');
+  const [isOption, setIsOption] = useState(false);
 
   const startRally = (team: TeamSide) => {
     setCurrentRally({ id: `r-${Date.now()}`, servingTeam: team, actions: [], step: 'serve' });
   };
 
   const getDefaultAttackerId = () => {
-    const lastAction = currentRally.actions[currentRally.actions.length - 1];
-    if (!lastAction) return null;
-    if (lastAction.type === 'set') {
-      const passAction = currentRally.actions.find(a => a.type === 'pass');
-      return passAction ? passAction.playerId : null;
-    } else if (lastAction.type === 'option') {
-      return lastAction.playerId;
+    const passAction = currentRally.actions.find(a => a.type === 'pass');
+    if (!passAction) return null;
+    const passer = gameState.players.find(p => p.id === passAction.playerId);
+    if (!passer) return null;
+    if (isOption) {
+      // Option: the passer's partner hits
+      const partner = gameState.players.find(p => p.team === passer.team && p.id !== passer.id);
+      return partner?.id ?? null;
     }
-    return null;
+    // Normal set: passer is the hitter
+    return passAction.playerId;
   };
 
   const finishRally = (winner: TeamSide, actions: TrackedAction[]) => {
@@ -68,7 +71,20 @@ export default function TrackingView({ gameState, onEndRally }: TrackingViewProp
       }
       nextStep = 'pass';
     } else if (type === 'pass') {
-      nextStep = 'setup';
+      // Skip setup step — auto-record a set action for the partner and go to attack
+      const passer = gameState.players.find(p => p.id === player);
+      if (passer) {
+        const partner = gameState.players.find(p => p.team === passer.team && p.id !== passer.id);
+        if (partner) {
+          const setAction: TrackedAction = {
+            id: `a-${Date.now() + 1}`, playerId: partner.id, type: 'set',
+            timestamp: Date.now() + 1
+          };
+          updatedActions.push(setAction);
+        }
+      }
+      setIsOption(false);
+      nextStep = 'attack';
     } else if (type === 'set' || type === 'option') {
       nextStep = 'attack';
     } else if (type === 'attack') {
@@ -87,15 +103,23 @@ export default function TrackingView({ gameState, onEndRally }: TrackingViewProp
   const undoLastAction = () => {
     if (currentRally.actions.length > 0) {
       const newActions = [...currentRally.actions];
-      newActions.pop();
-      const prevMap: Record<string, RallyStep> = { ace_passer: 'serve', pass: 'serve', setup: 'pass', attack: 'setup', defense_result: 'attack' };
-      setCurrentRally(prev => ({ ...prev, actions: newActions, step: prevMap[prev.step] || 'serve' }));
+      if (currentRally.step === 'attack') {
+        // Pop the auto-recorded set action, then the pass action
+        const last = newActions[newActions.length - 1];
+        if (last?.type === 'set') newActions.pop(); // remove auto-set
+        if (newActions[newActions.length - 1]?.type === 'pass') newActions.pop(); // remove pass
+        setCurrentRally(prev => ({ ...prev, actions: newActions, step: 'pass' }));
+      } else {
+        newActions.pop();
+        const prevMap: Record<string, RallyStep> = { ace_passer: 'serve', pass: 'serve', defense_result: 'attack' };
+        setCurrentRally(prev => ({ ...prev, actions: newActions, step: prevMap[prev.step] || 'serve' }));
+      }
     } else if (currentRally.step !== 'choose_server') {
       setCurrentRally(prev => ({ ...prev, step: 'choose_server', servingTeam: null }));
     }
   };
 
-  const steps = ['serve', 'pass', 'setup', 'attack'] as const;
+  const steps = ['serve', 'pass', 'attack'] as const;
 
   return (
     <div className="flex-1 flex flex-col p-4 sm:p-6 overflow-y-auto pb-32">
@@ -168,10 +192,10 @@ export default function TrackingView({ gameState, onEndRally }: TrackingViewProp
                   <button
                     key={p.id}
                     onClick={() => {
-                      // Record a bad pass for this receiver, then finish rally
+                      // Record an ace pass (score 0) for this receiver, then finish rally
                       const passAction: TrackedAction = {
                         id: `a-${Date.now()}`, playerId: p.id, type: 'pass',
-                        result: 'bad', timestamp: Date.now()
+                        result: 'ace', timestamp: Date.now()
                       };
                       finishRally(currentRally.servingTeam!, [...currentRally.actions, passAction]);
                     }}
@@ -204,38 +228,7 @@ export default function TrackingView({ gameState, onEndRally }: TrackingViewProp
           </motion.div>
         )}
 
-        {/* SETUP — Set or Option */}
-        {currentRally.step === 'setup' && (() => {
-          const handleSetupClick = (actionType: 'set' | 'option') => {
-            const passAction = currentRally.actions.find(a => a.type === 'pass');
-            if (passAction) {
-              const passer = gameState.players.find(p => p.id === passAction.playerId);
-              if (passer) {
-                const teammate = gameState.players.find(p => p.team === passer.team && p.id !== passer.id);
-                if (teammate) { addAction(teammate.id, actionType); return; }
-              }
-            }
-            const pid = getSelectedPlayerId();
-            if (pid) addAction(pid, actionType);
-          };
-          return (
-            <motion.div key="setup" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-4">
-              <h3 className="text-xs font-bold text-white/30 uppercase tracking-widest">Set or Option?</h3>
-              <div className="grid grid-cols-2 gap-3">
-                <button
-                  onClick={() => handleSetupClick('set')}
-                  className="py-10 rounded-2xl font-black uppercase tracking-wider text-base active:scale-95 transition-all bg-primary text-black">
-                  Set
-                </button>
-                <button
-                  onClick={() => handleSetupClick('option')}
-                  className="py-10 rounded-2xl font-black uppercase tracking-wider text-base active:scale-95 transition-all bg-white/10 border border-white/20 text-white">
-                  Option
-                </button>
-              </div>
-            </motion.div>
-          );
-        })()}
+
 
         {/* ATTACK */}
         {currentRally.step === 'attack' && (
@@ -255,6 +248,16 @@ export default function TrackingView({ gameState, onEndRally }: TrackingViewProp
                 ))}
               </div>
             )}
+            <div className="flex gap-2 p-1 bg-white/5 rounded-xl border border-white/10 mb-1">
+              {(['set', 'option'] as const).map(t => (
+                <button key={t} onClick={() => setIsOption(t === 'option')}
+                  className={`flex-1 py-2 rounded-lg font-bold uppercase text-[11px] tracking-wider transition-all ${
+                    (t === 'option') === isOption ? 'bg-primary text-black' : 'text-white/40'
+                  }`}>
+                  {t}
+                </button>
+              ))}
+            </div>
             <div className="grid grid-cols-3 gap-2 p-1 bg-white/5 rounded-xl border border-white/10">
               {(['hit line', 'hit cross', 'line shot', 'cutshot', 'dink', 'rainbow'] as AttackType[]).map(t => (
                 <button key={t} onClick={() => setSelectedAttackType(t)}
@@ -278,24 +281,28 @@ export default function TrackingView({ gameState, onEndRally }: TrackingViewProp
           </motion.div>
         )}
 
-        {/* DEFENSE RESULT */}
-        {currentRally.step === 'defense_result' && (
-          <motion.div key="defense" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-4">
-            <h3 className="text-xs font-bold text-white/30 uppercase tracking-widest">Defense Outcome</h3>
-            <button onClick={() => finishRally('opponent', currentRally.actions)} className="w-full py-8 bg-secondary text-black font-black uppercase rounded-2xl text-lg active:scale-95 transition-all">Opponent Scored</button>
-            <button onClick={() => finishRally('own', currentRally.actions)} className="w-full py-8 bg-primary text-black font-black uppercase rounded-2xl text-lg active:scale-95 transition-all">Opponent Error</button>
-            <button onClick={() => setCurrentRally(prev => ({ ...prev, step: 'rally_continued_scoring' }))} className="w-full py-4 border border-white/10 text-white/50 font-bold uppercase rounded-xl text-xs tracking-wider">Rally Continued</button>
-          </motion.div>
-        )}
-
-        {/* RALLY CONTINUED */}
-        {currentRally.step === 'rally_continued_scoring' && (
-          <motion.div key="continued" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-4 flex-1 flex flex-col justify-center">
-            <h3 className="text-xs font-bold text-white/30 uppercase tracking-widest text-center">Who scored?</h3>
-            <button onClick={() => finishRally('own', currentRally.actions)} className="py-12 bg-primary text-black font-black uppercase rounded-2xl text-xl active:scale-95 transition-all">MY TEAM</button>
-            <button onClick={() => finishRally('opponent', currentRally.actions)} className="py-12 bg-secondary text-black font-black uppercase rounded-2xl text-xl active:scale-95 transition-all">OPPONENT</button>
-          </motion.div>
-        )}
+        {/* DEFENSE RESULT — who scored? */}
+        {currentRally.step === 'defense_result' && (() => {
+          const servingTeam = currentRally.servingTeam!;
+          const sideoutTeam: TeamSide = servingTeam === 'own' ? 'opponent' : 'own';
+          const servingLabel = servingTeam === 'own' ? 'My Team' : 'Opponent';
+          const sideoutLabel = sideoutTeam === 'own' ? 'My Team' : 'Opponent';
+          return (
+            <motion.div key="defense" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="space-y-4 flex-1 flex flex-col justify-center">
+              <h3 className="text-xs font-bold text-white/30 uppercase tracking-widest text-center">Who scored?</h3>
+              <button onClick={() => finishRally(servingTeam, currentRally.actions)}
+                className={`py-12 font-black uppercase rounded-2xl text-xl active:scale-95 transition-all ${servingTeam === 'own' ? 'bg-primary text-black' : 'bg-secondary text-black'}`}>
+                {servingLabel}
+                <span className="block text-[10px] font-bold opacity-60 mt-1 normal-case tracking-wider">Serving team</span>
+              </button>
+              <button onClick={() => finishRally(sideoutTeam, currentRally.actions)}
+                className={`py-12 font-black uppercase rounded-2xl text-xl active:scale-95 transition-all ${sideoutTeam === 'own' ? 'bg-primary text-black' : 'bg-secondary text-black'}`}>
+                {sideoutLabel}
+                <span className="block text-[10px] font-bold opacity-60 mt-1 normal-case tracking-wider">Sideout team</span>
+              </button>
+            </motion.div>
+          );
+        })()}
       </AnimatePresence>
     </div>
   );

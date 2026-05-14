@@ -200,9 +200,9 @@ export default function App() {
 
     // Individual stats CSV
     csv += `INDIVIDUAL STATS\n`;
-    csv += `Player,Team,Serves,Aces,Attacks,Shots,Hits,Points,Errors,Efficiency,Pass%,SO Eff\n`;
+    csv += `Player,Team,Serves,Aces,Attacks,Shots,Hits,Points,Errors,Efficiency,Pass Score (0-3),Atk SO Eff\n`;
     s.playerStats.forEach((ps: any) => {
-      csv += `${ps.name || 'Unknown'},${ps.team === 'own' ? 'My Team' : 'Opponent'},${ps.serves},${ps.aces},${ps.attacks},${ps.shots},${ps.hits},${ps.points},${ps.errors},${(ps.efficiency * 100).toFixed(1)}%,${ps.passPercentage.toFixed(1)}%,${(ps.sideoutEfficiency * 100).toFixed(1)}%\n`;
+      csv += `${ps.name || 'Unknown'},${ps.team === 'own' ? 'My Team' : 'Opponent'},${ps.serves},${ps.aces},${ps.attacks},${ps.shots},${ps.hits},${ps.points},${ps.errors},${(ps.efficiency * 100).toFixed(1)}%,${ps.passes > 0 ? ps.passScore.toFixed(2) : '-'},${ps.sideoutAttempts > 0 ? ((ps.sideoutPoints - ps.sideoutErrors) / ps.sideoutAttempts).toFixed(3) : '-'}\n`;
     });
 
     const subject = encodeURIComponent(`BeachStats Match Report - ${myTeam} vs ${oppTeam} - ${date}`);
