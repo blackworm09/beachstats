@@ -259,7 +259,7 @@ export default function TrackingView({ gameState, onEndRally }: TrackingViewProp
               ))}
             </div>
             <div className="grid grid-cols-3 gap-2 p-1 bg-white/5 rounded-xl border border-white/10">
-              {(['hit line', 'line shot', 'dink', 'hit cross', 'cut shot', 'rainbow'] as AttackType[]).map(t => (
+              {(['hit line', 'line shot', 'dink', 'hit cross', 'cutshot', 'rainbow'] as AttackType[]).map(t => (
                 <button key={t} onClick={() => setSelectedAttackType(t)}
                   className={`py-2 rounded-lg font-bold uppercase text-[10px] tracking-tight transition-all ${
                     selectedAttackType === t ? 'bg-primary text-black' : 'text-white/40'
